@@ -1,8 +1,8 @@
 # Azure Incident Response Bot 🚨
 
 An AI-powered incident response bot that receives Azure Monitor webhook alerts,
-generates step-by-step runbooks using Claude AI, and posts structured incident
-cards to Slack — automatically.
+generates step-by-step runbooks using Claude AI, posts structured incident cards
+to Slack, and enables one-click auto-remediation — all automatically.
 
 Part of the **Maselli Technologies SRE Training Curriculum** — Month 2 of 6.
 
@@ -17,7 +17,7 @@ Azure Monitor Alert
 Action Group (Webhook)
         │
         ▼
-Azure Function (HTTP Trigger)
+Azure Function — incident_receiver (HTTP Trigger)
         │  Parses alert payload
         │  Classifies severity (P1/P2/P3)
         ▼
@@ -25,10 +25,18 @@ OpenRouter API (Claude AI)
         │  Generates contextual runbook
         ▼
 Slack #incidents
-        │  Structured incident card
-        │  Severity emoji + fields + runbook
-        ▼
-On-Call Engineer
+        │  Structured incident card + action buttons
+        │
+        ├── ✅ Acknowledge → threads reply tagging engineer
+        ├── 🔄 Restart App → Azure REST API restart call
+        └── 📈 Scale Out → Azure REST API scale call
+                │
+                ▼
+        Azure Function — slack_interactions (HTTP Trigger)
+                │  Verifies interaction
+                │  Executes remediation
+                ▼
+        Threaded reply in Slack with result
 ```
 
 ---
@@ -37,11 +45,15 @@ On-Call Engineer
 
 When an Azure Monitor alert fires, this bot:
 
-1. **Receives** the webhook payload from Azure Monitor
+1. **Receives** the webhook payload from Azure Monitor via Action Group
 2. **Parses** the alert — extracts resource, severity, description, timestamp
 3. **Classifies** severity — maps Sev0/Sev1 → P1, Sev2 → P2, Sev3/Sev4 → P3
 4. **Generates** a step-by-step AI runbook specific to the alert context
 5. **Posts** a structured incident card to Slack with severity banner and runbook
+6. **Enables** one-click remediation via interactive buttons:
+   - **Acknowledge** — marks incident as owned, tags engineer in thread
+   - **Restart App** — calls Azure REST API to restart the affected App Service
+   - **Scale Out** — increases instance count by 1 via Azure REST API
 
 ---
 
@@ -51,12 +63,14 @@ When an Azure Monitor alert fires, this bot:
 |-------|---------------|
 | Webhook ingestion | Azure Functions HTTP trigger receives Azure Monitor payloads |
 | Alert classification | Severity mapping from Azure schema to P1/P2/P3 |
-| Runbook automation | Dynamic AI-generated runbooks via Claude instead of static wiki pages |
+| Runbook automation | Dynamic AI-generated runbooks via Claude — no static wiki pages |
 | Incident notification | Structured Slack cards with Block Kit formatting |
+| Auto-remediation | One-click restart and scale out via Azure Management REST API |
+| Service principal auth | Azure AD client credentials flow for REST API access |
 | Serverless deployment | Azure Functions Consumption plan — scales to zero, costs nothing at rest |
 | Infrastructure as Code | All Azure resources provisioned via Azure CLI |
 | Observability | Application Insights auto-provisioned with Function App |
-| Post-mortem culture | See TROUBLESHOOTING.md for blameless issue log |
+| Post-mortem culture | TROUBLESHOOTING.md + POSTMORTEM_TEMPLATE.md included in repo |
 
 ---
 
@@ -65,7 +79,9 @@ When an Azure Monitor alert fires, this bot:
 - **Runtime:** Python 3.11, Azure Functions v4 (v2 programming model)
 - **AI:** Claude via OpenRouter API
 - **Alerting:** Azure Monitor metric alerts + Action Groups
-- **Notification:** Slack Block Kit API
+- **Notification:** Slack Block Kit API with interactive buttons
+- **Remediation:** Azure Management REST API (restart, scale)
+- **Auth:** Azure AD service principal (client credentials flow)
 - **Deployment:** Azure Functions Consumption Plan (Linux, East US)
 - **Observability:** Azure Application Insights
 
@@ -92,6 +108,14 @@ CPU usage exceeded 90% for 5 minutes
    b. Check CPU metrics in Azure Portal
    c. Review recent deployments for changes
    ...
+
+[ ✅ Acknowledge ]  [ 🔄 Restart App ]  [ 📈 Scale Out ]
+```
+
+When Restart App is clicked:
+```
+Action taken by @Christian M: Restart App
+Result: App Service maselli-app-service restarted successfully.
 ```
 
 ---
@@ -100,13 +124,14 @@ CPU usage exceeded 90% for 5 minutes
 
 ```
 azure-incident-bot/
-├── function_app.py          # Main function — webhook receiver, parser, AI caller, Slack poster
+├── function_app.py          # Both functions — incident receiver + Slack interactions
 ├── host.json                # Azure Functions host configuration
 ├── local.settings.json      # Local environment settings (not committed)
 ├── requirements.txt         # Python dependencies
 ├── .env                     # Secrets (not committed)
 ├── .gitignore
-├── TROUBLESHOOTING.md       # Post-mortem style log of build issues
+├── TROUBLESHOOTING.md       # Post-mortem style log of 8 build issues
+├── POSTMORTEM_TEMPLATE.md   # Blameless post-mortem template for incidents
 └── README.md
 ```
 
@@ -129,6 +154,17 @@ the Python v2 programming model. Core logic was validated via standalone Python
 script, then deployed directly to Azure where storage is platform-managed.
 See TROUBLESHOOTING.md for full details.
 
+**Why thread replies instead of updating the original message?**
+Threading preserves the full incident timeline in Slack — every action taken
+is visible in chronological order under the original alert card, which maps
+directly to how SRE teams document incident timelines.
+
+**Known limitation — Slack 3-second timeout on Scale Out:**
+The Scale Out action makes two sequential Azure REST API calls which can exceed
+Slack's 3-second button response window. The action completes successfully but
+Slack shows a timeout warning. Full fix would use response_url for async replies.
+See TROUBLESHOOTING.md Issue 8.
+
 ---
 
 ## Deployment
@@ -138,7 +174,24 @@ See TROUBLESHOOTING.md for full details.
 - Azure Functions Core Tools v4 (`func --version`)
 - Python 3.11
 - OpenRouter API key
-- Slack Bot Token with `chat:write` scope
+- Slack Bot Token with `chat:write` and `chat:write.public` scopes
+- Slack Signing Secret
+- Azure Service Principal with Contributor role on resource group
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `SLACK_BOT_TOKEN` | Slack bot token (xoxb-...) |
+| `SLACK_CHANNEL` | Target channel (#incidents) |
+| `SLACK_SIGNING_SECRET` | Slack app signing secret |
+| `OPENROUTER_API_KEY` | OpenRouter API key |
+| `OPENROUTER_MODEL` | Model string (anthropic/claude-3-haiku) |
+| `AZURE_TENANT_ID` | Azure AD tenant ID |
+| `AZURE_CLIENT_ID` | Service principal app ID |
+| `AZURE_CLIENT_SECRET` | Service principal secret |
+| `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
+| `AZURE_RESOURCE_GROUP` | Target resource group |
 
 ### Deploy to Azure
 
@@ -160,8 +213,17 @@ az functionapp create --resource-group rg-incident-bot `
 # Set environment variables
 az functionapp config appsettings set --name maselli-incident-bot `
   --resource-group rg-incident-bot `
-  --settings SLACK_BOT_TOKEN="xoxb-..." "SLACK_CHANNEL=#incidents" `
-  OPENROUTER_API_KEY="sk-or-..." OPENROUTER_MODEL="anthropic/claude-3-haiku"
+  --settings `
+  SLACK_BOT_TOKEN="xoxb-..." `
+  "SLACK_CHANNEL=#incidents" `
+  SLACK_SIGNING_SECRET="..." `
+  OPENROUTER_API_KEY="sk-or-..." `
+  OPENROUTER_MODEL="anthropic/claude-3-haiku" `
+  AZURE_TENANT_ID="..." `
+  AZURE_CLIENT_ID="..." `
+  AZURE_CLIENT_SECRET="..." `
+  AZURE_SUBSCRIPTION_ID="..." `
+  AZURE_RESOURCE_GROUP="rg-incident-bot"
 
 # Deploy code
 func azure functionapp publish maselli-incident-bot
@@ -190,6 +252,23 @@ az monitor metrics alert create `
   --action "ag-incident-bot"
 ```
 
+### Enable Slack Interactivity
+
+1. Go to api.slack.com/apps → incident-bot
+2. Click Interactivity & Shortcuts
+3. Toggle Interactivity On
+4. Set Request URL: `https://maselli-incident-bot.azurewebsites.net/api/slack_interactions`
+5. Save Changes
+
+---
+
+## Live Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/incident_receiver` | Receives Azure Monitor webhook alerts |
+| `POST /api/slack_interactions` | Handles Slack button interactions |
+
 ---
 
 ## Part of the Maselli Technologies SRE Training Curriculum
@@ -197,7 +276,7 @@ az monitor metrics alert create `
 | Month | Project | Focus | Status |
 |-------|---------|-------|--------|
 | 1 | Azure SLO Dashboard + AI Explainer | SLIs, SLOs, Error Budgets, AIOps | ✅ Complete |
-| 2 | AI-Powered Incident Response Bot | Incident Management, Runbooks | ✅ Complete |
+| 2 | AI-Powered Incident Response Bot | Incident Management, Runbooks, Auto-Remediation | ✅ Complete |
 | 3 | AKS Observability Stack | Kubernetes, Prometheus, Grafana | 🔄 Up next |
 | 4 | Internal Developer Platform API | Platform Engineering, GitOps | ⏳ Planned |
 | 5 | Chaos Engineering Suite | Chaos Engineering, Resilience | ⏳ Planned |
