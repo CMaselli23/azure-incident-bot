@@ -341,7 +341,8 @@ def slack_interactions(req: func.HttpRequest) -> func.HttpResponse:
         logging.info(f"Action ID: {action_id} | User: {user} | Channel: {channel}")
 
         try:
-            action_value = json.loads(action.get("value", "{}"))
+            raw_value = action.get("value", "{}").replace("+", " ")
+            action_value = json.loads(raw_value)
         except Exception:
             action_value = {}
 
