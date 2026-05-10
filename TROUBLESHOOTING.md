@@ -157,3 +157,43 @@ End-to-end pipeline confirmed working — Azure Monitor → Action Group → Web
 | Invalid metric names | Alert config | Failed alert creation | Queried available metrics, used Http5xx |
 | --use-common-alert-schema unsupported | Alert config | CLI error | Removed flag |
 | action-group test unavailable in CLI | Testing | Could not test via CLI | Used Azure Portal test feature |
+---
+
+## Issue 7 — Slack URL-encodes JSON values with + instead of %20
+
+**Date:** 2026-05-10
+**Severity:** Medium
+**Phase:** Week 3 - Button interactions
+
+### Symptom
+Restart App and Scale Out buttons sent "Unknown Resource" to the Azure REST API
+instead of the actual resource name, resulting in 404 errors.
+
+### Root Cause
+Slack URL-encodes button values before sending them in the interaction payload.
+Spaces in JSON strings are encoded as + signs rather than %20, causing
+json.loads() to fail silently and fall back to default values.
+
+### Resolution
+Added .replace('+', ' ') before json.loads() when parsing action values.
+
+---
+
+## Issue 8 — Slack 3-second timeout on Scale Out button
+
+**Date:** 2026-05-10
+**Severity:** Low
+**Phase:** Week 3 - Button interactions
+
+### Symptom
+Scale Out button showed "Operation timed out. Apps need to respond within
+3 seconds" warning in Slack, even though the scale out completed successfully.
+
+### Root Cause
+Slack requires a 200 response within 3 seconds of a button click. The Scale Out
+action calls two sequential Azure REST API calls (GET current count + PATCH new
+count) which together exceed 3 seconds.
+
+### Resolution (partial)
+Action completes successfully despite the warning. Full fix in Week 4 would
+involve returning 200 immediately and using response_url for async follow-up.
