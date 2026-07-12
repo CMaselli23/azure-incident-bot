@@ -277,7 +277,7 @@ az monitor metrics alert create `
 |-------|---------|-------|--------|
 | 1 | Azure SLO Dashboard + AI Explainer | SLIs, SLOs, Error Budgets, AIOps | ✅ Complete |
 | 2 | AI-Powered Incident Response Bot | Incident Management, Runbooks, Auto-Remediation | ✅ Complete |
-| 3 | AKS Observability Stack | Kubernetes, Prometheus, Grafana | 🔄 Up next |
-| 4 | Internal Developer Platform API | Platform Engineering, GitOps | ⏳ Planned |
+| 3 | AKS Observability Stack | Kubernetes, Prometheus, Grafana | ✅ Complete |
+| 4 | GitOps Continuous Delivery with Argo CD | GitOps, Declarative Delivery, AKS | ✅ Complete |
 | 5 | Chaos Engineering Suite | Chaos Engineering, Resilience | ⏳ Planned |
 | 6 | Full SRE Platform + AI Ops Chatbot | Capstone Integration | ⏳ Planned |
